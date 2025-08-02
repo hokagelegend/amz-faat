@@ -73,7 +73,7 @@ while true; do
 
     if echo "$permission_file" | grep -q -i "$client_name" && echo "$permission_file" | grep -q "$IP_VPS"; then
         # Mengambil tanggal kedaluwarsa dari kolom ke-3
-        exp_date=$(echo "$permission_file" | grep -i "$client_name" | awk '{print $3}')
+        exp_date=$(echo "$permission_file" | grep -i "$client_name" | head -n 1 | awk '{print $3}')
         
         # Validasi format tanggal
         if ! [[ "$exp_date" =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$ ]]; then
