@@ -134,16 +134,16 @@ wget -q -O /usr/bin/trial "https://raw.githubusercontent.com/hokagelegend/amz-fa
 wget -q -O /usr/bin/trojan-online "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/trojan-online" && chmod +x /usr/bin/trojan-online
 wget -q -O /usr/bin/ceklimit "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/ceklimit" && chmod +x /usr/bin/ceklimit
 wget -q -O /usr/bin/online "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/online" && chmod +x /usr/bin/online
-wget -q -O /usr/bin/atur-backup "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/atur-backup" && chmod +x /usr/bin/atur-backup
-wget -q -O /usr/bin/online-xray "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/online-xray" && chmod +x /usr/bin/online-xray
-wget -q -O /usr/bin/backup "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/backup" && chmod +x /usr/bin/backup
-wget -q -O /usr/bin/restore "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/restore" && chmod +x /usr/bin/restore
+wget -q -O /usr/bin/atur-backup "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/atur-backup" && chmod +x /usr/bin/atur-backup
+wget -q -O /usr/bin/online-xray "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/online-xray" && chmod +x /usr/bin/online-xray
+wget -q -O /usr/bin/backup "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/backup" && chmod +x /usr/bin/backup
+wget -q -O /usr/bin/restore "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/restore" && chmod +x /usr/bin/restore
 wget -q -O /usr/bin/admin "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/admin" && chmod +x /usr/bin/admin
-wget -q -O /usr/bin/online-vmess "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/online-vmess" && chmod +x /usr/bin/online-vmess
-wget -q -O /usr/bin/online-vless "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/online-vless" && chmod +x /usr/bin/online-vless
-wget -q -O /usr/bin/online-trojan "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/online-trojan" && chmod +x /usr/bin/online-trojan
-wget -q -O /usr/bin/online-sshws "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/online-sshws" && chmod +x /usr/bin/online-sshws
-wget -q -O /usr/bin/update-usage "https://github.com/hokagelegend9999/genom/raw/refs/heads/main/menu/update-usage" && chmod +x /usr/bin/update-usage
+wget -q -O /usr/bin/online-vmess "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/online-vmess" && chmod +x /usr/bin/online-vmess
+wget -q -O /usr/bin/online-vless "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/online-vless" && chmod +x /usr/bin/online-vless
+wget -q -O /usr/bin/online-trojan "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/online-trojan" && chmod +x /usr/bin/online-trojan
+wget -q -O /usr/bin/online-sshws "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/online-sshws" && chmod +x /usr/bin/online-sshws
+wget -q -O /usr/bin/update-usage "https://raw.githubusercontent.com/hokagelegend/amz-faat/refs/heads/main/menu/update-usage" && chmod +x /usr/bin/update-usage
 
 
 chmod +x m-tcp
