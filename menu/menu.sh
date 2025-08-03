@@ -128,8 +128,8 @@ get_net_info() {
         CITY=$(echo "$JSON" | grep -Po '"city":\s*"\K[^"]*')
 
         # Fallback jika kosong
-        [[ -z "$ISP" ]] && ISP=$(curl -s --connect-timeout 3 ipapi.co/org || echo "Unknown")
-        [[ -z "$CITY" ]] && CITY=$(curl -s --connect-timeout 3 ipapi.co/city || echo "Unknown")
+        [[ -z "$ISP" ]] && ISP=$(curl -sL --connect-timeout 3 ipapi.co/org || echo "Unknown")
+        [[ -z "$CITY" ]] && CITY=$(curl -sL --connect-timeout 3 ipapi.co/city || echo "Unknown")
     else
         ISP="Unknown"
         CITY="Unknown"
