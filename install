@@ -66,10 +66,10 @@ while true; do
     fi
 
     # Menggunakan curl untuk memeriksa apakah client_name ada dalam file permission.txt
-    permission_file=$(curl -s https://github.com/hokagelegend/ijin/raw/refs/heads/main/ijin)
+    permission_file=$(curl -sL https://github.com/hokagelegend/ijin/raw/refs/heads/main/ijin)
     
     # Mengambil IP_VPS juga untuk validasi di izin.txt
-    IP_VPS=$(curl -s https://ipinfo.io/ip) # Pastikan ini mengambil IP publik
+    IP_VPS=$(curl -sL https://ipinfo.io/ip) # Pastikan ini mengambil IP publik
 
     if echo "$permission_file" | grep -q -i "$client_name" && echo "$permission_file" | grep -q "$IP_VPS"; then
         # Mengambil tanggal kedaluwarsa dari kolom ke-3
@@ -118,7 +118,7 @@ send_telegram_message() {
     BUTTON_TEXT1="Telegram 😎"
     BUTTON_TEXT2="Whatsapp 🐳"
 
-    RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+    RESPONSE=$(curl -sL -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
         -d chat_id="$CHAT_ID" \
         -d parse_mode="MarkdownV2" \
         -d text="$MESSAGE" \
