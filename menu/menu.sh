@@ -50,7 +50,7 @@ if [ -z "$permission_file" ]; then
 fi
 
 # Ambil IP VPS dengan metode alternatif
-IP_VPS=$(curl -s ipv4.icanhazip.com)
+IP_VPS=$(curl -sL ipv4.icanhazip.com)
 
 # =============================================
 #          [ Pengecekan IP ]
