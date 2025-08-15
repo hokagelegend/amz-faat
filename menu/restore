@@ -1,6 +1,8 @@
 #!/bin/bash
 # My Telegram : https://t.me/hokagevpnpremium
 # ==========================================
+# FINAL ROBUST VERSION - COMPATIBLE WITH OLD BACKUP SCRIPT
+# ==========================================
 # Color
 RED='\033[0;31m'
 NC='\033[0m'
@@ -29,12 +31,12 @@ spinner() {
 
 # Must be run as root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Skrip ini harus dijalankan sebagai root!${NC}" 
+   echo -e "${RED}Skrip ini harus dijalankan sebagai root!${NC}"
    exit 1
 fi
 
-# Cek dependensi
-for cmd in rclone unzip; do
+# Cek dependensi (menambahkan wget dan rsync)
+for cmd in rclone unzip file wget rsync; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "${ORANGE}$cmd tidak ditemukan. Menginstall...${NC}"
         apt-get update > /dev/null 2>&1
@@ -44,12 +46,12 @@ done
 
 clear
 echo "=================================================="
-echo -e "      ${CYAN}MENU RESTORE DATA PENGGUNA${NC}"
+echo -e "     ${CYAN}MENU RESTORE DATA PENGGUNA${NC}"
 echo "=================================================="
 echo ""
 echo -e "Pilih sumber file backup:"
 echo -e "1. Restore dari File Lokal (.zip)"
-echo -e "2. Restore dari Google Drive (rclone)"
+echo -e "2. Restore dari Link Google Drive"
 echo ""
 read -p "Masukkan pilihan [1-2]: " -r choice
 
@@ -66,54 +68,43 @@ case $choice in
         BACKUP_FILE_PATH=$LOCAL_FILE
         ;;
     2)
-        echo -e "${BLUE}Mencari file backup di Google Drive (dr:backup/)...${NC}"
-        # List zip files in Google Drive backup folder
-        mapfile -t files < <(rclone lsf dr:backup/ --include "*.zip")
-        
-        if [ ${#files[@]} -eq 0 ]; then
-            echo -e "${RED}Tidak ada file backup .zip yang ditemukan di Google Drive (dr:backup/).${NC}"
+        read -p "Masukkan link Google Drive (pastikan sudah 'Anyone with the link'): " GDLINK
+        FILE_ID=""
+        if [[ "$GDLINK" =~ \/d\/(.+)\/ ]]; then
+            FILE_ID="${BASH_REMATCH[1]}"
+        elif [[ "$GDLINK" =~ id=([^&]+) ]]; then
+            FILE_ID="${BASH_REMATCH[1]}"
+        fi
+        if [ -z "$FILE_ID" ]; then
+            echo -e "${RED}Error: Link Google Drive tidak valid atau tidak dapat menemukan File ID.${NC}"
             exit 1
         fi
-        
-        echo -e "${CYAN}Pilih file backup yang ingin dipulihkan:${NC}"
-        select_prompt="Pilih nomor file (atau 'q' untuk keluar): "
-        PS3="$select_prompt"
-        select file in "${files[@]}"; do
-            if [[ -n "$file" ]]; then
-                echo -e "${BLUE}Mendownload $file dari Google Drive...${NC}"
-                (rclone copy "dr:backup/$file" /root/) &
-                pid=$!
-                spinner $pid
-                wait $pid
-                
-                if [ -f "/root/$file" ]; then
-                    BACKUP_FILE_PATH="/root/$file"
-                    DOWNLOADED_FROM_GDRIVE=true
-                    echo -e "${GREEN}Download berhasil.${NC}"
-                    break
-                else
-                    echo -e "${RED}Gagal mendownload file.${NC}"
-                    exit 1
-                fi
-            elif [[ "$REPLY" == "q" ]]; then
-                echo "Proses dibatalkan."
-                exit 0
+        DIRECT_DOWNLOAD_LINK="https://drive.google.com/uc?export=download&id=${FILE_ID}"
+        TEMP_FILENAME="backup_download_$(date +%Y%m%d_%H%M%S).zip"
+        DEST_PATH="/root/${TEMP_FILENAME}"
+        echo -e "${BLUE}Mencoba download langsung sebagai '${TEMP_FILENAME}'...${NC}"
+        wget -q --show-progress -O "$DEST_PATH" "$DIRECT_DOWNLOAD_LINK"
+        if [ -s "$DEST_PATH" ]; then
+            if file "$DEST_PATH" | grep -q "Zip archive data"; then
+                BACKUP_FILE_PATH="$DEST_PATH"
+                DOWNLOADED_FROM_GDRIVE=true
+                echo -e "${GREEN}Download berhasil: ${TEMP_FILENAME}${NC}"
             else
-                echo "Pilihan tidak valid."
+                echo -e "${RED}Download gagal. File yang diunduh bukan arsip Zip yang valid.${NC}"
+                rm -f "$DEST_PATH"
+                exit 1
             fi
-        done
+        else
+            echo -e "${RED}Gagal mendownload file. Hasil download kosong atau tidak ada.${NC}"
+            rm -f "$DEST_PATH" 2>/dev/null
+            exit 1
+        fi
         ;;
-    *)
-        echo -e "${RED}Pilihan tidak valid.${NC}"
-        exit 1
-        ;;
+    *) echo -e "${RED}Pilihan tidak valid.${NC}"; exit 1;;
 esac
 
 echo ""
-if [ -z "$BACKUP_FILE_PATH" ]; then
-    echo -e "${RED}Tidak ada file backup yang dipilih. Proses berhenti.${NC}"
-    exit 1
-fi
+if [ -z "$BACKUP_FILE_PATH" ]; then echo -e "${RED}Tidak ada file backup yang dipilih. Proses berhenti.${NC}"; exit 1; fi
 
 # --- KONFIRMASI PENTING ---
 echo -e "${ORANGE}==================== PERINGATAN ====================${NC}"
@@ -126,53 +117,54 @@ echo ""
 
 if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
     echo -e "${BLUE}Proses restore dibatalkan oleh pengguna.${NC}"
-    # Hapus file yang didownload jika proses dibatalkan
-    if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then
-        rm -f "$BACKUP_FILE_PATH"
-    fi
+    if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then rm -f "$BACKUP_FILE_PATH"; fi
     exit 0
 fi
 
 # --- MULAI PROSES RESTORE ---
 TEMP_RESTORE_DIR="/root/restore_temp_$(date +%s)"
 mkdir -p "$TEMP_RESTORE_DIR"
-
 echo -e "${BLUE}Mengekstrak file backup...${NC}"
-(unzip -o "$BACKUP_FILE_PATH" -d "$TEMP_RESTORE_DIR" > /dev/null 2>&1) &
-pid=$!
-spinner $pid
-wait $pid
-
+unzip -o "$BACKUP_FILE_PATH" -d "$TEMP_RESTORE_DIR" > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo -e "${RED}Gagal mengekstrak file backup. Pastikan file tidak korup.${NC}"
-    rm -rf "$TEMP_RESTORE_DIR"
-    if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then
-        rm -f "$BACKUP_FILE_PATH"
-    fi
+    rm -rf "$TEMP_RESTORE_DIR"; if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then rm -f "$BACKUP_FILE_PATH"; fi
     exit 1
 fi
 echo -e "${GREEN}Ekstrak berhasil.${NC}"
 
-echo -e "${BLUE}Memulihkan data ke sistem...${NC}"
-# Perintah ini sangat kuat. Menyalin semua isi folder restore ke root direktori server.
-(cp -rf "$TEMP_RESTORE_DIR"/* /) &
-pid=$!
-spinner $pid
-wait $pid
+# --- PERBAIKAN UTAMA: MEMINDAHKAN FILE SECARA MANUAL ---
+echo -e "${BLUE}Memulihkan data ke sistem (memindahkan file satu per satu)...${NC}"
+cd "$TEMP_RESTORE_DIR" || exit
+
+# Memulihkan file-file sistem
+echo -e "${CYAN}Memulihkan file sistem...${NC}"
+if [ -f "passwd" ]; then mv -f passwd /etc/passwd; echo " -> /etc/passwd dipulihkan"; fi
+if [ -f "group" ]; then mv -f group /etc/group; echo " -> /etc/group dipulihkan"; fi
+if [ -f "shadow" ]; then mv -f shadow /etc/shadow; echo " -> /etc/shadow dipulihkan"; fi
+if [ -f "gshadow" ]; then mv -f gshadow /etc/gshadow; echo " -> /etc/gshadow dipulihkan"; fi
+if [ -f "crontab" ]; then mv -f crontab /etc/crontab; echo " -> /etc/crontab dipulihkan"; fi
+
+# Memulihkan folder-folder (menggunakan rsync untuk menimpa dengan benar)
+echo -e "${CYAN}Memulihkan data konfigurasi...${NC}"
+if [ -d "vless" ]; then rsync -a --delete vless/ /etc/vless/; echo " -> /etc/vless dipulihkan"; fi
+if [ -d "vmess" ]; then rsync -a --delete vmess/ /etc/vmess/; echo " -> /etc/vmess dipulihkan"; fi
+if [ -d "trojan" ]; then rsync -a --delete trojan/ /etc/trojan/; echo " -> /etc/trojan dipulihkan"; fi
+if [ -d "xray" ]; then rsync -a --delete xray/ /etc/xray/; echo " -> /etc/xray dipulihkan"; fi
+if [ -d "kyt" ]; then rsync -a --delete kyt/ /var/lib/kyt/; echo " -> /var/lib/kyt dipulihkan"; fi
+if [ -d "html" ]; then rsync -a --delete html/ /var/www/html/; echo " -> /var/www/html dipulihkan"; fi
+
 echo -e "${GREEN}Data berhasil dipulihkan.${NC}"
+# --- AKHIR DARI PERBAIKAN ---
 
 echo -e "${BLUE}Me-restart layanan terkait...${NC}"
 (systemctl restart xray > /dev/null 2>&1 && systemctl restart nginx > /dev/null 2>&1) &
-pid=$!
-spinner $pid
-wait $pid
-echo -e "${GREEN}Layanan telah di-restart.${NC}"
+pid=$!; spinner $pid; wait $pid; echo -e "${GREEN}Layanan telah di-restart.${NC}"
 
 echo -e "${BLUE}Membersihkan file sementara...${NC}"
 rm -rf "$TEMP_RESTORE_DIR"
-# Hapus file zip setelah selesai, baik yang lokal maupun yang didownload
-if [ -f "$BACKUP_FILE_PATH" ]; then
-    rm -f "$BACKUP_FILE_PATH"
+if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then
+    if [ -f "$BACKUP_FILE_PATH" ]; then rm -f "$BACKUP_FILE_PATH"; fi
 fi
 
 echo ""
