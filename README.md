@@ -8,3 +8,4 @@ wget https://github.com/hokagelegend/amz-faat/raw/refs/heads/main/install && chm
 ```
 
 # EXPIRED 2026-08-02
+COUNTING = 3 IP
