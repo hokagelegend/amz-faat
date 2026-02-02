@@ -380,6 +380,7 @@ echo -e "${YELLOW}╰══${GREEN}==================${BLUE}══=======${PURPL
 
 echo -e "${MAGENTA}╭═══════${CYAN}══════ • ${RED}GENOM SCRIPT PRO${BLUE} • ${GREEN}═══════════════╮${NC}"
 echo -e "${YELLOW}│PILIH NOMOR${NC} ${CYAN}  [15]    ${WH}🧬 AKSESS GENOM PRO ADMIN 🧬${NC}│"
+echo -e "${YELLOW}│PILIH NOMOR${NC} ${CYAN}  [16]    ${WH}🧬 MENU ZIVPN (New)) 🧬${NC}│"
 echo -e "${BLUE}╰══${RED}==================${GREEN}══=======${CYAN}══════════════════════${MAGENTA}╯${NC}"
 echo -e "$COLOR1│                                                   $COLOR1│ $NC"
 echo -e "$COLOR1╰═══════════════════════════════════════════════════╯${NC}"
@@ -411,6 +412,7 @@ case $opt in
 11 | 11) clear ; menu-backup;;
 12 | 12) clear ; online;;
 15 | 15) clear ; admin;;
+16 | 16) clear ; zivpn-menu;;
 00 | 0) clear ; menu ;;
 *) clear ; menu ;;
 esac
