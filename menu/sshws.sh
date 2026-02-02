@@ -1,4 +1,3 @@
-
 #!/bin/bash
 clear
 
@@ -135,6 +134,13 @@ cd
 if [ ! -e /etc/xray/sshx/akun ]; then
 mkdir -p /etc/xray/sshx/akun
 fi
+
+# --- CEK DEPENDENSI JQ ---
+if ! command -v jq &> /dev/null; then
+    echo "Installing JQ..."
+    apt-get update && apt-get install jq -y > /dev/null 2>&1
+fi
+
 function usernew() {
     clear
     domen=$(cat /etc/xray/domain)
@@ -150,7 +156,7 @@ function usernew() {
     
     clear
     echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-    echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• SSH PANEL MENU •                ${NC}$COLOR1│ $NC"
+    echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• SSH & ZIVPN MENU •               ${NC}$COLOR1│ $NC"
     echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
     
     while true; do
@@ -176,6 +182,13 @@ function usernew() {
                     userdel -r "$Login" >/dev/null 2>&1
                     sed -i "/^### $Login /d" /etc/xray/ssh
                     rm -f "/etc/xray/sshx/${Login}IP" "/home/vps/public_html/ssh-$Login.txt"
+                    
+                    # HAPUS JUGA DI ZIVPN
+                    ZIVPN_CFG="/etc/zivpn/config.json"
+                    if [[ -f "$ZIVPN_CFG" ]]; then
+                        jq --arg u "$Login" '.auth.config -= [$u]' "$ZIVPN_CFG" > "${ZIVPN_CFG}.tmp" && mv "${ZIVPN_CFG}.tmp" "$ZIVPN_CFG"
+                    fi
+                    
                     echo -e "Akun kedaluwarsa $Login telah dihapus. Silahkan buat baru."
                     break
                 else
@@ -193,7 +206,6 @@ function usernew() {
         fi
     done
     
-    # Lanjutkan proses pembuatan akun...
     read -p "Password : " Pass
     until [[ $masaaktif =~ ^[0-9]+$ ]]; do
         read -p "Expired (hari): " masaaktif
@@ -202,31 +214,43 @@ function usernew() {
         read -p "Limit User (IP): " iplim
     done
     
-    # ... (sisa kode tetap sama)
+    if [ ! -e /etc/xray/sshx ]; then
+    mkdir -p /etc/xray/sshx
+    fi
+    if [ -z ${iplim} ]; then
+    iplim="0"
+    fi
+    echo "${iplim}" >/etc/xray/sshx/${Login}IP
+    IP=$(curl -sS ifconfig.me);
+    if [[ -e /etc/cloudfront ]]; then
+    cloudfront=$(cat /etc/cloudfront)
+    else
+    cloudfront="-"
+    fi
+    sleep 1
+    clear
+    expi=`date -d "$masaaktif days" +"%Y-%m-%d"`
+    useradd -e `date -d "$masaaktif days" +"%Y-%m-%d"` -s /bin/false -M $Login
+    exp="$(chage -l $Login | grep "Account expires" | awk -F": " '{print $2}')"
+    echo -e "$Pass\n$Pass\n"|passwd $Login &> /dev/null
+    echo -e "### $Login $expi $Pass" >> /etc/xray/ssh
 
-if [ ! -e /etc/xray/sshx ]; then
-mkdir -p /etc/xray/sshx
-fi
-if [ -z ${iplim} ]; then
-iplim="0"
-fi
-echo "${iplim}" >/etc/xray/sshx/${Login}IP
-IP=$(curl -sS ifconfig.me);
-if [[ -e /etc/cloudfront ]]; then
-cloudfront=$(cat /etc/cloudfront)
-else
-cloudfront="-"
-fi
-sleep 1
-clear
-expi=`date -d "$masaaktif days" +"%Y-%m-%d"`
-useradd -e `date -d "$masaaktif days" +"%Y-%m-%d"` -s /bin/false -M $Login
-exp="$(chage -l $Login | grep "Account expires" | awk -F": " '{print $2}')"
-echo -e "$Pass\n$Pass\n"|passwd $Login &> /dev/null
-echo -e "### $Login $expi $Pass" >> /etc/xray/ssh
-cat > /home/vps/public_html/ssh-$Login.txt <<-END
+    # ==========================================
+    # INPUT USER KE ZIVPN JSON
+    # ==========================================
+    ZIVPN_CFG="/etc/zivpn/config.json"
+    if [[ -f "$ZIVPN_CFG" ]]; then
+        # Cek apakah user sudah ada (untuk menghindari duplikat)
+        if ! jq -e ".auth.config | index(\"$Login\")" "$ZIVPN_CFG" > /dev/null; then
+            jq --arg u "$Login" '.auth.config += [$u]' "$ZIVPN_CFG" > "${ZIVPN_CFG}.tmp" && mv "${ZIVPN_CFG}.tmp" "$ZIVPN_CFG"
+            systemctl restart zivpn > /dev/null 2>&1
+        fi
+    fi
+    # ==========================================
+
+    cat > /home/vps/public_html/ssh-$Login.txt <<-END
 _______________________________
-Format SSH OVPN Account
+Format SSH & ZIVPN Account
 _______________________________
 Username         : $Login
 Password         : $Pass
@@ -244,10 +268,13 @@ Port SSL/TLS     : 8443, 8880
 Port OVPN WS SSL : 2086
 Port OVPN SSL    : 990
 Port OVPN TCP    : 1194
-Port OVPN UDP    : 2200,
+Port OVPN UDP    : 2200
 BadVPN UDP       : 7100, 7300, 7300
 _______________________________
-Host Slowdns    : $sldomain
+ZIVPN UDP        : 5667
+Format ZIVPN     : $domen:5667@$Login:$Pass
+_______________________________
+Host Slowdns     : $sldomain
 Port Slowdns     : 80, 443, 53
 Pub Key          : $slkey
 _______________________________
@@ -266,42 +293,46 @@ END
 if [[ -e /etc/cloudfront ]]; then
 TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
-SSH Premium Account
+SSH & ZIVPN Account
 ◇━━━━━━━━━━━━━━━━━◇
 Username        :  <code>$Login</code>
 Password        :  <code>$Pass</code>
-Expired On       :  $exp
+Expired On      :  $exp
 ◇━━━━━━━━━━━━━━━━━◇
-ISP              :  $ISP
-CITY             :  $CITY
-Host             :  <code>$domen</code>
-Login Limit      :  ${iplim} IP
-Port OpenSSH    :  22
-Port Dropbear    :  109, 143
-Port SSH WS     :  80, 8080
-Port SSH SSL WS :  443
-Port SSL/TLS     :  8443,8880
-Port OVPN WS SSL :  2086
-Port OVPN SSL    :  990
-Port OVPN TCP    :  1194
-Port OVPN UDP    :  2200
-Proxy Squid        :  3128
-BadVPN UDP       :  7100, 7300, 7300
+ISP               :  $ISP
+CITY              :  $CITY
+Host              :  <code>$domen</code>
+Login Limit       :  ${iplim} IP
+Port OpenSSH      :  22
+Port Dropbear     :  109, 143
+Port SSH WS       :  80, 8080
+Port SSH SSL WS   :  443
+Port SSL/TLS      :  8443,8880
+Port OVPN WS SSL  :  2086
+Port OVPN SSL     :  990
+Port OVPN TCP     :  1194
+Port OVPN UDP     :  2200
+Proxy Squid       :  3128
+BadVPN UDP        :  7100, 7300, 7300
+◇━━━━━━━━━━━━━━━━━◇
+<b>ZIVPN UDP</b>
+Port : 5667
+Format : <code>$domen:5667@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 SSH UDP VIRAL : <code>$domen:1-65535@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 HTTP COSTUM WS : <code>$domen:80@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Host Slowdns    :  <code>$sldomain</code>
-Port Slowdns     :  80, 443, 53
-Pub Key          :  <code> $slkey</code>
+Host Slowdns      :  <code>$sldomain</code>
+Port Slowdns      :  80, 443, 53
+Pub Key           :  <code> $slkey</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Payload WS/WSS   :
+Payload WS/WSS    :
 <code>GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]</code>
 ◇━━━━━━━━━━━━━━━━━◇
-OpenVPN SSL      :  http://$domen:89/ssl.ovpn
-OpenVPN TCP      :  http://$domen:89/tcp.ovpn
-OpenVPN UDP      :  http://$domen:89/udp.ovpn
+OpenVPN SSL       :  http://$domen:89/ssl.ovpn
+OpenVPN TCP       :  http://$domen:89/tcp.ovpn
+OpenVPN UDP       :  http://$domen:89/udp.ovpn
 ◇━━━━━━━━━━━━━━━━━◇
 Save Link Account: http://$domen:89/ssh-$Login.txt
 ◇━━━━━━━━━━━━━━━━━◇
@@ -310,42 +341,46 @@ Save Link Account: http://$domen:89/ssh-$Login.txt
 else
 TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
-SSH Premium Account
+SSH & ZIVPN Account
 ◇━━━━━━━━━━━━━━━━━◇
 Username        :  <code>$Login</code>
 Password        :  <code>$Pass</code>
-Expired On       :  $exp
+Expired On      :  $exp
 ◇━━━━━━━━━━━━━━━━━◇
-ISP              :  $ISP
-CITY             :  $CITY
-Host             :  <code>$domen</code>
-Login Limit      :  ${iplim} IP
-Port OpenSSH    :  22
-Port Dropbear    :  109, 143
-Port SSH WS     :  80, 8080
-Port SSH SSL WS :  443
-Port SSL/TLS     :  8443,8880
-Port OVPN WS SSL :  2086
-Port OVPN SSL    :  990
-Port OVPN TCP    :  1194
-Port OVPN UDP    :  2200
-Proxy Squid        :  3128
-BadVPN UDP       :  7100, 7300, 7300
+ISP               :  $ISP
+CITY              :  $CITY
+Host              :  <code>$domen</code>
+Login Limit       :  ${iplim} IP
+Port OpenSSH      :  22
+Port Dropbear     :  109, 143
+Port SSH WS       :  80, 8080
+Port SSH SSL WS   :  443
+Port SSL/TLS      :  8443,8880
+Port OVPN WS SSL  :  2086
+Port OVPN SSL     :  990
+Port OVPN TCP     :  1194
+Port OVPN UDP     :  2200
+Proxy Squid       :  3128
+BadVPN UDP        :  7100, 7300, 7300
+◇━━━━━━━━━━━━━━━━━◇
+<b>ZIVPN UDP</b>
+Port : 5667
+Format : <code>$domen:5667@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 SSH UDP VIRAL : <code>$domen:1-65535@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 HTTP COSTUM WS : <code>$domen:80@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Host Slowdns    :  <code>$sldomain</code>
-Port Slowdns     :  80, 443, 53
-Pub Key          :  <code> $slkey</code>
+Host Slowdns      :  <code>$sldomain</code>
+Port Slowdns      :  80, 443, 53
+Pub Key           :  <code> $slkey</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Payload WS/WSS   :
+Payload WS/WSS    :
 <code>GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]</code>
 ◇━━━━━━━━━━━━━━━━━◇
-OpenVPN SSL      :  http://$domen:89/ssl.ovpn
-OpenVPN TCP      :  http://$domen:89/tcp.ovpn
-OpenVPN UDP      :  http://$domen:89/udp.ovpn
+OpenVPN SSL       :  http://$domen:89/ssl.ovpn
+OpenVPN TCP       :  http://$domen:89/tcp.ovpn
+OpenVPN UDP       :  http://$domen:89/udp.ovpn
 ◇━━━━━━━━━━━━━━━━━◇
 Save Link Account: http://$domen:89/ssh-$Login.txt
 ◇━━━━━━━━━━━━━━━━━◇
@@ -364,7 +399,7 @@ user2=$(echo "$Login" | cut -c 1-3)
 TIME2=$(date +'%Y-%m-%d %H:%M:%S')
 clear
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
-echo -e "$COLOR1 ${NC} ${WH}• SSH Premium Account  • " | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 ${NC} ${WH}• SSH & ZIVPN Account  • " | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}Username   ${COLOR1}: ${WH}$Login"  | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}Password   ${COLOR1}: ${WH}$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
@@ -388,11 +423,13 @@ echo -e "$COLOR1 $NC  ${WH}OVPN UDP   ${COLOR1}: ${WH}http://$domen:89/udp.ovpn"
 echo -e "$COLOR1 $NC  ${WH}OVPN SSL   ${COLOR1}: ${WH}http://$domen:89/ssl.ovpn" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}UDPGW      ${COLOR1}: ${WH}7100-7300" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}ZIVPN UDP  ${COLOR1}: ${WH}5667" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}PORT SLWDNS${COLOR1}: ${WH}80,443,53" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}NAMESERVER ${COLOR1}: ${WH}$sldomain" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}PUB KEY    ${COLOR1}: ${WH}$slkey" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
-echo -e "$COLOR1 $NC  ${WH}UDP VIRAL${COLOR1}: ${WH}$domen:1-65535@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}ZIVPN     ${COLOR1}: ${WH}$domen:5667@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}UDP VIRAL ${COLOR1}: ${WH}$domen:1-65535@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}HTTP COSTUM${COLOR1}: ${WH}$domen:80@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
@@ -424,7 +461,7 @@ clear
 IP=$(curl -sS ifconfig.me)
 cd
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}            ${WH}• TRIAL SSH Account •                ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}             ${WH}• TRIAL SSH Account •               ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e ""
 until [[ $timer =~ ^[0-9]+$ ]]; do
@@ -451,10 +488,23 @@ useradd -e `date -d "$hari days" +"%Y-%m-%d"` -s /bin/false -M $Login
 exp="$(chage -l $Login | grep "Account expires" | awk -F": " '{print $2}')"
 echo -e "$Pass\n$Pass\n"|passwd $Login &> /dev/null
 echo -e "### $Login $expi $Pass" >> /etc/xray/ssh
+
+# ==========================================
+# INPUT TRIAL KE ZIVPN JSON
+# ==========================================
+ZIVPN_CFG="/etc/zivpn/config.json"
+if [[ -f "$ZIVPN_CFG" ]]; then
+    if ! jq -e ".auth.config | index(\"$Login\")" "$ZIVPN_CFG" > /dev/null; then
+        jq --arg u "$Login" '.auth.config += [$u]' "$ZIVPN_CFG" > "${ZIVPN_CFG}.tmp" && mv "${ZIVPN_CFG}.tmp" "$ZIVPN_CFG"
+        systemctl restart zivpn > /dev/null 2>&1
+    fi
+fi
+# ==========================================
+
 tmux new-session -d -s $Login "trial ssh $Login $expi $Pass ${timer}"
 cat > /home/vps/public_html/ssh-$Login.txt <<-END
 _______________________________
-Format SSH OVPN Account
+Format SSH & ZIVPN Account
 _______________________________
 Username         : $Login
 Password         : $Pass
@@ -475,7 +525,10 @@ Port OVPN TCP    : 1194
 Port OVPN UDP    : 2200,
 BadVPN UDP       : 7100, 7300, 7300
 _______________________________
-Host Slowdns    : $sldomain
+ZIVPN UDP        : 5667
+Format ZIVPN     : $domen:5667@$Login:$Pass
+_______________________________
+Host Slowdns     : $sldomain
 Port Slowdns     : 80, 443, 53
 Pub Key          : $slkey
 _______________________________
@@ -494,42 +547,46 @@ END
 if [[ -e /etc/cloudfront ]]; then
 TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
-Trial SSH Premium Account
+Trial SSH & ZIVPN Account
 ◇━━━━━━━━━━━━━━━━━◇
 Username        :  <code>$Login</code>
 Password        :  <code>$Pass</code>
-Expired On       :  $timer Minutes
+Expired On      :  $timer Minutes
 ◇━━━━━━━━━━━━━━━━━◇
-ISP              :  $ISP
-CITY             :  $CITY
-Host             :  <code>$domen</code>
-Login Limit      :  ${iplim} IP
-Port OpenSSH    :  22
-Port Dropbear    :  109, 143
-Port SSH WS     :  80, 8080
-Port SSH SSL WS :  443
-Port SSL/TLS     :  8443,8880
-Port OVPN WS SSL :  2086
-Port OVPN SSL    :  990
-Port OVPN TCP    :  1194
-Port OVPN UDP    :  2200
-Proxy Squid        :  3128
-BadVPN UDP       :  7100, 7300, 7300
+ISP               :  $ISP
+CITY              :  $CITY
+Host              :  <code>$domen</code>
+Login Limit       :  ${iplim} IP
+Port OpenSSH      :  22
+Port Dropbear     :  109, 143
+Port SSH WS       :  80, 8080
+Port SSH SSL WS   :  443
+Port SSL/TLS      :  8443,8880
+Port OVPN WS SSL  :  2086
+Port OVPN SSL     :  990
+Port OVPN TCP     :  1194
+Port OVPN UDP     :  2200
+Proxy Squid       :  3128
+BadVPN UDP        :  7100, 7300, 7300
+◇━━━━━━━━━━━━━━━━━◇
+<b>ZIVPN UDP</b>
+Port : 5667
+Format : <code>$domen:5667@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 SSH UDP VIRAL : <code>$domen:1-65535@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 HTTP COSTUM WS : <code>$domen:80@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Host Slowdns    :  <code>$sldomain</code>
-Port Slowdns     :  80, 443, 53
-Pub Key          :  <code> $slkey</code>
+Host Slowdns      :  <code>$sldomain</code>
+Port Slowdns      :  80, 443, 53
+Pub Key           :  <code> $slkey</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Payload WS/WSS   :
+Payload WS/WSS    :
 <code>GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]</code>
 ◇━━━━━━━━━━━━━━━━━◇
-OpenVPN SSL      :  http://$domen:89/ssl.ovpn
-OpenVPN TCP      :  http://$domen:89/tcp.ovpn
-OpenVPN UDP      :  http://$domen:89/udp.ovpn
+OpenVPN SSL       :  http://$domen:89/ssl.ovpn
+OpenVPN TCP       :  http://$domen:89/tcp.ovpn
+OpenVPN UDP       :  http://$domen:89/udp.ovpn
 ◇━━━━━━━━━━━━━━━━━◇
 Save Link Account: http://$domen:89/ssh-$Login.txt
 ◇━━━━━━━━━━━━━━━━━◇
@@ -538,42 +595,46 @@ Save Link Account: http://$domen:89/ssh-$Login.txt
 else
 TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
-Trial SSH Premium Account
+Trial SSH & ZIVPN Account
 ◇━━━━━━━━━━━━━━━━━◇
 Username        :  <code>$Login</code>
 Password        :  <code>$Pass</code>
-Expired On       :  $timer Minutes
+Expired On      :  $timer Minutes
 ◇━━━━━━━━━━━━━━━━━◇
-ISP              :  $ISP
-CITY             :  $CITY
-Host             :  <code>$domen</code>
-Login Limit      :  ${iplim} IP
-Port OpenSSH    :  22
-Port Dropbear    :  109, 143
-Port SSH WS     :  80, 8080
-Port SSH SSL WS :  443
-Port SSL/TLS     :  8443,8880
-Port OVPN WS SSL :  2086
-Port OVPN SSL    :  990
-Port OVPN TCP    :  1194
-Port OVPN UDP    :  2200
-Proxy Squid        :  3128
-BadVPN UDP       :  7100, 7300, 7300
+ISP               :  $ISP
+CITY              :  $CITY
+Host              :  <code>$domen</code>
+Login Limit       :  ${iplim} IP
+Port OpenSSH      :  22
+Port Dropbear     :  109, 143
+Port SSH WS       :  80, 8080
+Port SSH SSL WS   :  443
+Port SSL/TLS      :  8443,8880
+Port OVPN WS SSL  :  2086
+Port OVPN SSL     :  990
+Port OVPN TCP     :  1194
+Port OVPN UDP     :  2200
+Proxy Squid       :  3128
+BadVPN UDP        :  7100, 7300, 7300
+◇━━━━━━━━━━━━━━━━━◇
+<b>ZIVPN UDP</b>
+Port : 5667
+Format : <code>$domen:5667@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 SSH UDP VIRAL : <code>$domen:1-65535@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
 HTTP COSTUM WS : <code>$domen:80@$Login:$Pass</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Host Slowdns    :  <code>$sldomain</code>
-Port Slowdns     :  80, 443, 53
-Pub Key          :  <code> $slkey</code>
+Host Slowdns      :  <code>$sldomain</code>
+Port Slowdns      :  80, 443, 53
+Pub Key           :  <code> $slkey</code>
 ◇━━━━━━━━━━━━━━━━━◇
-Payload WS/WSS   :
+Payload WS/WSS    :
 <code>GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]</code>
 ◇━━━━━━━━━━━━━━━━━◇
-OpenVPN SSL      :  http://$domen:89/ssl.ovpn
-OpenVPN TCP      :  http://$domen:89/tcp.ovpn
-OpenVPN UDP      :  http://$domen:89/udp.ovpn
+OpenVPN SSL       :  http://$domen:89/ssl.ovpn
+OpenVPN TCP       :  http://$domen:89/tcp.ovpn
+OpenVPN UDP       :  http://$domen:89/udp.ovpn
 ◇━━━━━━━━━━━━━━━━━◇
 Save Link Account: http://$domen:89/ssh-$Login.txt
 ◇━━━━━━━━━━━━━━━━━◇
@@ -595,7 +656,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 EOF
 clear
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
-echo -e "$COLOR1 ${NC} ${WH}• Trial SSH Premium Account • " | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 ${NC} ${WH}• Trial SSH & ZIVPN Account • " | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}Username   ${COLOR1}: ${WH}$Login"  | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}Password   ${COLOR1}: ${WH}$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
@@ -619,11 +680,13 @@ echo -e "$COLOR1 $NC  ${WH}OVPN UDP   ${COLOR1}: ${WH}http://$domen:89/udp.ovpn"
 echo -e "$COLOR1 $NC  ${WH}OVPN SSL   ${COLOR1}: ${WH}http://$domen:89/ssl.ovpn" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}UDPGW      ${COLOR1}: ${WH}7100-7300" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}ZIVPN UDP  ${COLOR1}: ${WH}5667" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}PORT SLWDNS${COLOR1}: ${WH}80,443,53" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}NAMESERVER ${COLOR1}: ${WH}$sldomain" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}PUB KEY    ${COLOR1}: ${WH}$slkey" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
-echo -e "$COLOR1 $NC  ${WH}UDP VIRAL${COLOR1}: ${WH}$domen:1-65535@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}ZIVPN     ${COLOR1}: ${WH}$domen:5667@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
+echo -e "$COLOR1 $NC  ${WH}UDP VIRAL ${COLOR1}: ${WH}$domen:1-65535@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 $NC  ${WH}HTTP COSTUM${COLOR1}: ${WH}$domen:80@$Login:$Pass" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
 echo -e "$COLOR1 ◇━━━━━━━━━━━━━━━━━◇ ${NC}" | tee -a /etc/xray/sshx/akun/log-create-${Login}.log
@@ -652,11 +715,11 @@ NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/xray/ssh")
 if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
 clear
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• RENEW USERS •                    │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• RENEW USERS •                     │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│                                                 │"
-echo -e "$COLOR1│${WH} User Tidak Ada!                              $COLOR1   │"
+echo -e "$COLOR1│${WH} User Tidak Ada!                                $COLOR1   │"
 echo -e "$COLOR1│                                                 │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo ""
@@ -664,11 +727,11 @@ read -n 1 -s -r -p "Press any key to back on menu"
 sshws
 fi
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• RENEW USERS •                    │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• RENEW USERS •                     │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau di Renew$COLOR1           │"
-echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu$COLOR1                        │"
+echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau di Renew$COLOR1            │"
+echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu$COLOR1                         │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 grep -E "^### " "/etc/xray/ssh" | cut -d ' ' -f 2-3 | nl -s ') '
 until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
@@ -735,7 +798,7 @@ TEXT2="
 curl -s --max-time $TIMES -d "chat_id=$CHATID2&disable_web_page_preview=1&text=$TEXT2&parse_mode=html" $URL2 >/dev/null
 clear
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• RENEW USERS •                    │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• RENEW USERS •                     │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│"
@@ -753,11 +816,11 @@ NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/xray/ssh")
 if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
 clear
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• DELETE USERS •                   │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• DELETE USERS •                    │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│                                                 │"
-echo -e "$COLOR1│${WH} User Tidak Ada!                              $COLOR1   │"
+echo -e "$COLOR1│${WH} User Tidak Ada!                                $COLOR1   │"
 echo -e "$COLOR1│                                                 │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo ""
@@ -765,11 +828,11 @@ read -n 1 -s -r -p "Press any key to back on menu"
 sshws
 fi
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• DELETE USERS •                   │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• DELETE USERS •                    │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau Didelete     $COLOR1      │"
-echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu                     $COLOR1   │"
+echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau Didelete      $COLOR1       │"
+echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu                      $COLOR1   │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 grep -E "^### " "/etc/xray/ssh" | cut -d ' ' -f 2-3 | nl -s ') '
 until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
@@ -791,6 +854,17 @@ rm /etc/xray/sshx/${Pengguna}IP >/dev/null 2>&1
 rm /etc/xray/sshx/${Pengguna}login >/dev/null 2>&1
 if getent passwd $Pengguna > /dev/null 2>&1; then
 userdel $Pengguna > /dev/null 2>&1
+
+# ==========================================
+# HAPUS DARI ZIVPN JSON
+# ==========================================
+ZIVPN_CFG="/etc/zivpn/config.json"
+if [[ -f "$ZIVPN_CFG" ]]; then
+    jq --arg u "$Pengguna" '.auth.config -= [$u]' "$ZIVPN_CFG" > "${ZIVPN_CFG}.tmp" && mv "${ZIVPN_CFG}.tmp" "$ZIVPN_CFG"
+    systemctl restart zivpn > /dev/null 2>&1
+fi
+# ==========================================
+
 echo -e "User $Pengguna was removed."
 else
 echo -e "Failure: User $Pengguna Not Exist."
@@ -829,11 +903,11 @@ NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/xray/ssh")
 if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
 clear
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• USER CONFIG •                    │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• USER CONFIG •                     │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│                                                 │"
-echo -e "$COLOR1│${WH} User Tidak Ada!                              $COLOR1   │"
+echo -e "$COLOR1│${WH} User Tidak Ada!                                $COLOR1   │"
 echo -e "$COLOR1│                                                 │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo ""
@@ -841,11 +915,11 @@ read -n 1 -s -r -p "Press any key to back on menu"
 sshws
 fi
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}              ${WH}• USER CONFIG •                    │${NC}$COLOR1$NC"
+echo -e "$COLOR1│${NC}${COLBG1}               ${WH}• USER CONFIG •                     │${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau Dicek     $COLOR1         │"
-echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu                     $COLOR1   │"
+echo -e "$COLOR1│ ${WH}Silahkan Pilih User Yang Mau Dicek      $COLOR1         │"
+echo -e "$COLOR1│ ${WH}ketik [0] kembali kemenu                      $COLOR1   │"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 grep -E "^### " "/etc/xray/ssh" | cut -d ' ' -f 2-3 | nl -s ') '
 until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
@@ -882,7 +956,7 @@ echo -e "$COLOR1┌────────────────────�
 echo -e "$COLOR1 ${NC} ${COLBG1}                 ${WH}• MEMBER SSH •                 ${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo "USERNAME          EXP DATE          STATUS"
+echo "USERNAME           EXP DATE           STATUS"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 while read expired
 do
@@ -892,9 +966,9 @@ exp="$(chage -l $AKUN | grep "Account expires" | awk -F": " '{print $2}')"
 status="$(passwd -S $AKUN | awk '{print $2}' )"
 if [[ $ID -ge 1000 ]]; then
 if [[ "$status" = "L" ]]; then
-printf "%-17s %2s %-17s %2s \n" "$AKUN" "$exp     " "LOCKED"
+printf "%-17s %2s %-17s %2s \n" "$AKUN" "$exp      " "LOCKED"
 else
-printf "%-17s %2s %-17s %2s \n" "$AKUN" "$exp     " "UNLOCKED"
+printf "%-17s %2s %-17s %2s \n" "$AKUN" "$exp      " "UNLOCKED"
 fi
 fi
 done < /etc/passwd
@@ -903,7 +977,7 @@ echo -e "$COLOR1┌────────────────────�
 echo "Account number: $JUMLAH user"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1 ${NC}${COLBG1}              ${WH}• DELETE USERS •                   ${NC}$COLOR1$NC"
+echo -e "$COLOR1 ${NC}${COLBG1}               ${WH}• DELETE USERS •                    ${NC}$COLOR1$NC"
 echo -e "$COLOR1└─────────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌─────────────────────────────────────────────────┐${NC}"
 echo ""
@@ -1067,12 +1141,12 @@ echo -e "$COLOR1┌────────────────────�
 echo -e "$COLOR1│ \033[1;37mPlease select a your Choice              $COLOR1│${NC}"
 echo -e "$COLOR1└──────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌──────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│  [ 1 ]  \033[1;37mAUTO LOCKED USER SSH      ${NC}"
+echo -e "$COLOR1│  [ 1 ]  \033[1;37mAUTO LOCKED USER SSH       ${NC}"
 echo -e "$COLOR1│  "
-echo -e "$COLOR1│  [ 2 ]  \033[1;37mAUTO DELETE USER SSH    ${NC}"
+echo -e "$COLOR1│  [ 2 ]  \033[1;37mAUTO DELETE USER SSH     ${NC}"
 echo -e "$COLOR1│  "
 echo -e "$COLOR1│  "
-echo -e "$COLOR1│  [ 0 ]  \033[1;37mBACK TO MENU    ${NC}"
+echo -e "$COLOR1│  [ 0 ]  \033[1;37mBACK TO MENU     ${NC}"
 echo -e "$COLOR1└──────────────────────────────────────────┘${NC}"
 until [[ $lock =~ ^[0-2]+$ ]]; do
 read -p "   Please select numbers 1 sampai 2 : " lock
@@ -1083,7 +1157,7 @@ elif [[ $lock == "1" ]]; then
 clear
 echo "lock" > /etc/typessh
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│$NC Succes Ganti Auto Lock  ${NC}"
@@ -1094,7 +1168,7 @@ elif [[ $lock == "2" ]]; then
 clear
 echo "delete" > /etc/typessh
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│$NC Succes Ganti Auto Delete Accounr ${NC}"
@@ -1106,7 +1180,7 @@ type=$(cat /etc/typessh)
 if [ $type = "lock" ]; then
 clear
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│$NC SILAHKAN TULIS JUMLAH WAKTU UNTUK LOCKED  ${NC}"
@@ -1116,18 +1190,18 @@ read -rp "   Jumlah Waktu Lock: " -e notif2
 echo "${notif2}" > /etc/waktulockssh
 clear
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "${COLOR1}│ $NC SILAHKAN TULIS JUMLAH NOTIFIKASI UNTUK AUTO LOCK    ${NC}"
-echo -e "${COLOR1}│ $NC AKUN USER YANG MULTI LOGIN     ${NC}"
+echo -e "${COLOR1}│ $NC SILAHKAN TULIS JUMLAH NOTIFIKASI UNTUK AUTO LOCK     ${NC}"
+echo -e "${COLOR1}│ $NC AKUN USER YANG MULTI LOGIN      ${NC}"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 read -rp "   Jika Mau 3x Notif baru kelock tulis 3, dst: " -e notif
 cd /etc/xray/sshx
 echo "$notif" > notif
 clear
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "${COLOR1}│ $NC SUCCES GANTI NOTIF LOCK JADI $notif $NC "
@@ -1135,7 +1209,7 @@ echo -e "${COLOR1}│ $NC SUCCES GANTI TIME NOTIF LOCK JADI $notif2 MENIT $NC "
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 else
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "$COLOR1│$NC SILAHKAN TULIS JUMLAH WAKTU UNTUK UNTUK SCAN ${NC}"
@@ -1145,21 +1219,21 @@ read -rp "   Tulis Waktu Scan (Menit) : " -e notif2
 echo "# Autokill" >/etc/cron.d/tendang
 echo "SHELL=/bin/sh" >>/etc/cron.d/tendang
 echo "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin" >>/etc/cron.d/tendang
-echo "*/$notif2 * * * *  root /usr/bin/tendang" >>/etc/cron.d/tendang
+echo "*/$notif2 * * * * root /usr/bin/tendang" >>/etc/cron.d/tendang
 clear
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "${COLOR1}│ $NC SILAHKAN TULIS JUMLAH NOTIFIKASI UNTUK AUTO LOCK    ${NC}"
-echo -e "${COLOR1}│ $NC AKUN USER YANG MULTI LOGIN     ${NC}"
+echo -e "${COLOR1}│ $NC SILAHKAN TULIS JUMLAH NOTIFIKASI UNTUK AUTO LOCK     ${NC}"
+echo -e "${COLOR1}│ $NC AKUN USER YANG MULTI LOGIN      ${NC}"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 read -rp "   Jika Mau 3x Notif baru kelock tulis 3, dst: " -e notif
 cd /etc/xray/sshx
 echo "$notif" > notif
 clear
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
-echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •             ${NC}$COLOR1│ $NC"
+echo -e "$COLOR1│${NC}${COLBG1}           ${WH}• SETTING MULTI LOGIN •              ${NC}$COLOR1│ $NC"
 echo -e "$COLOR1└───────────────────────────────────────────────┘${NC}"
 echo -e "$COLOR1┌───────────────────────────────────────────────┐${NC}"
 echo -e "${COLOR1}│ $NC SUCCES GANTI NOTIF LOCK JADI $notif $NC "
@@ -1178,7 +1252,7 @@ fi
 NUMBER_OF_CLIENTS=$(grep -c -E "^### " "/etc/xray/sshx/listlock")
 if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
 echo -e "$COLOR1━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "$COLOR1 ${NC}${COLBG1}    ${WH}⇱ Unlock SSH Account ⇲       ${NC} $COLOR1 $NC"
+echo -e "$COLOR1 ${NC}${COLBG1}    ${WH}⇱ Unlock SSH Account ⇲        ${NC} $COLOR1 $NC"
 echo -e "$COLOR1━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "You have no existing user Lock!"
@@ -1189,13 +1263,13 @@ sshws
 fi
 clear
 echo -e "$COLOR1━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "$COLOR1 ${NC}${COLBG1}    ${WH}⇱ Unlock SSH Account ⇲       ${NC} $COLOR1 $NC"
+echo -e "$COLOR1 ${NC}${COLBG1}    ${WH}⇱ Unlock SSH Account ⇲        ${NC} $COLOR1 $NC"
 echo -e "$COLOR1━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo " Select the existing client you want to Unlock"
 echo " ketik [0] kembali kemenu"
 echo " tulis clear untuk delete semua Akun"
 echo -e "$COLOR1━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo "     No  User      Expired"
+echo "      No  User       Expired"
 grep -E "^### " "/etc/xray/sshx/listlock" | cut -d ' ' -f 2-3 | nl -s ') '
 until [[ ${CLIENT_NUMBER} -ge 1 && ${CLIENT_NUMBER} -le ${NUMBER_OF_CLIENTS} ]]; do
 if [[ ${CLIENT_NUMBER} == '1' ]]; then
@@ -1251,21 +1325,21 @@ sshws
 clear
 author=$(cat /etc/profil)
 echo -e " $COLOR1╔════════════════════════════════════════════════════╗${NC}"
-echo -e " $COLOR1║${NC}${COLBG1}             ${WH}• SSH PANEL MENU •                     ${NC}$COLOR1║ $NC"
+echo -e " $COLOR1║${NC}${COLBG1}               ${WH}• SSH PANEL MENU •                     ${NC}$COLOR1║ $NC"
 echo -e " $COLOR1╚════════════════════════════════════════════════════╝${NC}"
 echo -e " $COLOR1╔════════════════════════════════════════════════════╗${NC}"
-echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}01${WH}]${NC} ${COLOR1}• ${WH}ADD AKUN${NC}        ${WH}[${COLOR1}05${WH}]${NC} ${COLOR1}• ${WH}CEK USER ONLINE${NC}    $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC                                                  ${NC} $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}02${WH}]${NC} ${COLOR1}• ${WH}TRIAL AKUN${NC}      ${WH}[${COLOR1}06${WH}]${NC} ${COLOR1}• ${WH}CEK USER CONFIG${NC}    $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC                                                  ${NC} $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}03${WH}]${NC} ${COLOR1}• ${WH}RENEW AKUN${NC}      ${WH}[${COLOR1}07${WH}]${NC} ${COLOR1}• ${WH}CHANGE IP LIMIT${NC}    $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC                                                  ${NC} $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}04${WH}]${NC} ${COLOR1}• ${WH}DELETE AKUN${NC}     ${WH}[${COLOR1}08${WH}]${NC} ${COLOR1}• ${WH}SETTING LOCK LOGIN${NC} $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC                                                  ${NC} $COLOR1║ $NC"
-echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}00${WH}]${NC} ${COLOR1}• ${WH}GO BACK${NC}         ${WH}[${COLOR1}09${WH}]${NC} ${COLOR1}• ${WH}UNLOCK LOGIN${NC}      $COLOR1 ║$NC"
+echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}01${WH}]${NC} ${COLOR1}• ${WH}ADD AKUN${NC}         ${WH}[${COLOR1}05${WH}]${NC} ${COLOR1}• ${WH}CEK USER ONLINE${NC}     $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC                                                 ${NC} $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}02${WH}]${NC} ${COLOR1}• ${WH}TRIAL AKUN${NC}       ${WH}[${COLOR1}06${WH}]${NC} ${COLOR1}• ${WH}CEK USER CONFIG${NC}     $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC                                                 ${NC} $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}03${WH}]${NC} ${COLOR1}• ${WH}RENEW AKUN${NC}       ${WH}[${COLOR1}07${WH}]${NC} ${COLOR1}• ${WH}CHANGE IP LIMIT${NC}     $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC                                                 ${NC} $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}04${WH}]${NC} ${COLOR1}• ${WH}DELETE AKUN${NC}      ${WH}[${COLOR1}08${WH}]${NC} ${COLOR1}• ${WH}SETTING LOCK LOGIN${NC} $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC                                                 ${NC} $COLOR1║ $NC"
+echo -e " $COLOR1║ $NC  ${WH}[${COLOR1}00${WH}]${NC} ${COLOR1}• ${WH}GO BACK${NC}          ${WH}[${COLOR1}09${WH}]${NC} ${COLOR1}• ${WH}UNLOCK LOGIN${NC}       $COLOR1 ║$NC"
 echo -e " $COLOR1╚════════════════════════════════════════════════════╝${NC}"
 echo -e " $COLOR1╔═════════════════════════ ${WH}BY${NC} ${COLOR1}═══════════════════════╗ ${NC}"
-echo -e "  $COLOR1${NC}              ${WH}   • HOKAGE LEGEND STORE •                 $COLOR1 $NC"
+echo -e "  $COLOR1${NC}               ${WH}    • HOKAGE LEGEND STORE •                  $COLOR1 $NC"
 echo -e " $COLOR1╚════════════════════════════════════════════════════╝${NC}"
 echo -e ""
 echo -ne " ${WH}Select menu ${COLOR1}: ${WH}"; read opt
