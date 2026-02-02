@@ -272,7 +272,8 @@ Port OVPN UDP    : 2200
 BadVPN UDP       : 7100, 7300, 7300
 _______________________________
 ZIVPN UDP        : 5667
-Format ZIVPN     : $domen:5667@$Login:$Pass
+Format ZIVPN     : $domen
+PASSWORD ZIVPN   : $Login
 _______________________________
 Host Slowdns     : $sldomain
 Port Slowdns     : 80, 443, 53
@@ -526,7 +527,8 @@ Port OVPN UDP    : 2200,
 BadVPN UDP       : 7100, 7300, 7300
 _______________________________
 ZIVPN UDP        : 5667
-Format ZIVPN     : $domen:5667@$Login:$Pass
+Format ZIVPN     : $domen
+PASSWORD ZIVPN   : $Login
 _______________________________
 Host Slowdns     : $sldomain
 Port Slowdns     : 80, 443, 53
