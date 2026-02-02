@@ -1,0 +1,204 @@
+#!/bin/bash
+# ==================================================
+#  ALPHA SCRIPT - ZIVPN INSTALLER PREMIUM
+# ==================================================
+
+# // Definisi Warna
+NC='\033[0m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+WHITE='\033[0;37m'
+YELLOW='\033[0;33m'
+BORDER="${CYAN}"
+
+# // Clear Screen
+clear
+
+# ==================================================
+# FUNGSI DESIGN & HELPER
+# ==================================================
+print_gradient() {
+    local text="$1"
+    awk -v text="$text" 'BEGIN {
+        len = length(text);
+        r_start=255; g_start=215; b_start=0;
+        r_mid=0;     g_mid=128;   b_mid=255;
+        r_end=138;   g_end=43;    b_end=226;
+        for (i=0; i<len; i++) {
+            ratio = i / (len-1);
+            if (ratio <= 0.5) {
+                f = ratio * 2;
+                r = int(r_start + (r_mid - r_start) * f);
+                g = int(g_start + (g_mid - g_start) * f);
+                b = int(b_start + (b_mid - b_start) * f);
+            } else {
+                f = (ratio - 0.5) * 2;
+                r = int(r_mid + (r_end - r_mid) * f);
+                g = int(g_mid + (g_end - g_mid) * f);
+                b = int(b_mid + (b_end - b_mid) * f);
+            }
+            printf "\033[38;2;%d;%d;%dm%s", r, g, b, substr(text, i+1, 1);
+        }
+        printf "\033[0m\n";
+    }'
+}
+
+line() { echo -e "${BORDER} ╭─────────────────────────────────────╮${NC}"; }
+mid()  { echo -e "${BORDER} ├─────────────────────────────────────┤${NC}"; }
+close(){ echo -e "${BORDER} ╰─────────────────────────────────────╯${NC}"; }
+
+fun_bar() {
+    CMD="$1"
+    (
+        [[ -e $HOME/fim ]] && rm $HOME/fim
+        $CMD >/dev/null 2>&1
+        touch $HOME/fim
+    ) >/dev/null 2>&1 &
+
+    tput civis
+    echo -ne "  \033[0;33mSedang Memproses \033[1;37m- \033[0;33m["
+    while true; do
+        for ((i = 0; i < 18; i++)); do
+            echo -ne "\033[0;32m#"
+            sleep 0.1s
+        done
+        if [[ -e $HOME/fim ]]; then
+            rm $HOME/fim
+            break
+        fi
+        echo -e "\033[0;33m]"
+        sleep 1s
+        tput cuu1
+        tput dl1
+        echo -ne "  \033[0;33mSedang Memproses \033[1;37m- \033[0;33m["
+    done
+    echo -e "\033[0;33m]\033[1;37m -\033[1;32m SUKSES !\033[1;37m"
+    tput cnorm
+}
+
+# ==================================================
+# LOGIKA INSTALASI
+# ==================================================
+
+install_step1() {
+    # Update & Stop Service
+    apt-get update && apt-get upgrade -y
+    systemctl stop zivpn.service
+    
+    # Download Binary
+    wget https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64 -O /usr/local/bin/zivpn
+    chmod +x /usr/local/bin/zivpn
+    
+    # Config Dir
+    mkdir -p /etc/zivpn
+    wget https://raw.githubusercontent.com/zahidbd2/udp-zivpn/main/config.json -O /etc/zivpn/config.json
+}
+
+install_step2() {
+    # Generate Certs (Silent)
+    openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj "/C=US/ST=California/L=Los Angeles/O=Example Corp/OU=IT Department/CN=zivpn" -keyout "/etc/zivpn/zivpn.key" -out "/etc/zivpn/zivpn.crt" 2>/dev/null
+    
+    # Sysctl Tuning
+    sysctl -w net.core.rmem_max=16777216
+    sysctl -w net.core.wmem_max=16777216
+}
+
+install_step3() {
+    # Create Service File
+    cat <<EOF > /etc/systemd/system/zivpn.service
+[Unit]
+Description=zivpn VPN Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/zivpn
+ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
+Restart=always
+RestartSec=3
+Environment=ZIVPN_LOG_LEVEL=info
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Default Config (Reset to default 'zi' to ensure start)
+    # User management will be handled by external script later
+    # sed -i -E "s/\"config\": ?\[[[:space:]]*\"zi\"[[:space:]]*\]/\"config\": [\"zi\"]/g" /etc/zivpn/config.json
+}
+
+install_step4() {
+    # Enable & Start
+    systemctl daemon-reload
+    systemctl enable zivpn.service
+    systemctl start zivpn.service
+    
+    # Firewall & Routing
+    # Mendapatkan interface default secara dinamis
+    NIC=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
+    iptables -t nat -A PREROUTING -i $NIC -p udp --dport 6000:19999 -j DNAT --to-destination :5667
+    
+    # UFW (Suppress error jika tidak terinstall)
+    ufw allow 6000:19999/udp >/dev/null 2>&1
+    ufw allow 5667/udp >/dev/null 2>&1
+    
+    # Cleanup
+    rm -f zi.*
+}
+
+# ==================================================
+# MAIN INSTALLER DISPLAY
+# ==================================================
+
+clear
+echo -e ""
+print_gradient "╭═══════════════════════════════════════╮"
+print_gradient "│     ALPHA SCRIPT - ZIVPN INSTALLER    │"
+print_gradient "╰═══════════════════════════════════════╯"
+line
+printf "${BORDER} │ ${WHITE}%-35s ${BORDER}│${NC}\n" "Memulai Proses Instalasi..."
+close
+echo -e ""
+
+# --- Step 1 ---
+echo -e "  \033[1;91m Preparing System & Downloading...\033[1;37m"
+fun_bar 'install_step1'
+
+# --- Step 2 ---
+echo -e "  \033[1;91m Generating Certificates & Tuning...\033[1;37m"
+fun_bar 'install_step2'
+
+# --- Step 3 ---
+echo -e "  \033[1;91m Configuring System Service...\033[1;37m"
+fun_bar 'install_step3'
+
+# --- Step 4 ---
+echo -e "  \033[1;91m Starting Service & Firewall...\033[1;37m"
+fun_bar 'install_step4'
+
+# ==================================================
+# FINAL STATUS CHECK
+# ==================================================
+echo -e ""
+if systemctl is-active --quiet zivpn.service; then
+    STATUS="${GREEN}RUNNING ✅${NC}"
+else
+    STATUS="${RED}ERROR ❌${NC}"
+fi
+
+print_gradient "╭═══════════════════════════════════════╮"
+print_gradient "│         INSTALLATION COMPLETE         │"
+print_gradient "╰═══════════════════════════════════════╯"
+line
+printf "${BORDER} │ ${WHITE}Service Name : ${CYAN}%-22s ${BORDER}│${NC}\n" "zivpn.service"
+printf "${BORDER} │ ${WHITE}Status       : %-26b ${BORDER}│${NC}\n" "$STATUS"
+printf "${BORDER} │ ${WHITE}UDP Port     : ${YELLOW}%-22s ${BORDER}│${NC}\n" "5667 (Core)"
+mid
+printf "${BORDER} │ ${WHITE}%-35s ${BORDER}│${NC}\n" "System Ready for User Management"
+close
+echo -e ""
