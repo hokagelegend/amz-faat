@@ -1,174 +1,199 @@
 #!/bin/bash
-# My Telegram : https://t.me/hokagevpnpremium
 # ==========================================
-# FINAL ROBUST VERSION - COMPATIBLE WITH OLD BACKUP SCRIPT
+# 💎 GENOM RESTORE SCRIPT V4.5 (GDRIVE FIX)
 # ==========================================
-# Color
-RED='\033[0;31m'
+
+# --- CONFIGURATION & COLORS ---
 NC='\033[0m'
+RED='\033[0;31m'
 GREEN='\033[0;32m'
-ORANGE='\033[0;33m'
+YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
-LIGHT='\033[0;37m'
-# ==========================================
+B_CYAN='\033[1;36m'
+B_WHITE='\033[1;37m'
 
-# Function to display progress spinner
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while ps -p $pid > /dev/null; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
+# --- PREMIUM ASSETS (PROGRESS BAR) ---
+fun_bar() {
+    CMD="$1"
+    TEXT="$2"
+    eval "$CMD" >/dev/null 2>&1 &
+    PID=$!
+    tput civis
+    echo -ne "  ${CYAN}${TEXT} ${NC}"
+    while kill -0 $PID 2>/dev/null; do
+        for i in {1..4}; do echo -ne "\033[0;32m▓"; sleep 0.1; done
     done
-    printf "    \b\b\b\b"
+    wait $PID
+    if [ $? -eq 0 ]; then
+        echo -e "  ${CYAN}⚡ ${TEXT} : ${GREEN}SUKSES ✅${NC}"
+    else
+        echo -e "  ${CYAN}⚡ ${TEXT} : ${RED}GAGAL ❌${NC}"
+    fi
+    tput cnorm
 }
 
-# Must be run as root
-if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Skrip ini harus dijalankan sebagai root!${NC}"
-   exit 1
-fi
-
-# Cek dependensi (menambahkan wget dan rsync)
-for cmd in rclone unzip file wget rsync; do
-    if ! command -v $cmd &> /dev/null; then
-        echo -e "${ORANGE}$cmd tidak ditemukan. Menginstall...${NC}"
-        apt-get update > /dev/null 2>&1
-        apt-get install -y $cmd > /dev/null 2>&1
-    fi
-done
-
+# --- HEADER ---
 clear
-echo "=================================================="
-echo -e "     ${CYAN}MENU RESTORE DATA PENGGUNA${NC}"
-echo "=================================================="
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW}           ♻️  GENOM SYSTEM RESTORE PRO  ♻️       ${NC}"
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${B_WHITE}  Fungsi : Memulihkan Data VPS dari Backup (.zip)${NC}"
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "Pilih sumber file backup:"
-echo -e "1. Restore dari File Lokal (.zip)"
-echo -e "2. Restore dari Link Google Drive"
+
+# --- 1. PILIH METODE ---
+echo -e "${B_WHITE}[1/5] Pilih Sumber File Backup:${NC}"
+echo -e "    [1] Dari Link (Google Drive / URL)"
+echo -e "    [2] Dari File Lokal (/root/backup.zip)"
 echo ""
-read -p "Masukkan pilihan [1-2]: " -r choice
+read -p "   Input Pilihan [1-2]: " method
 
-BACKUP_FILE_PATH=""
-DOWNLOADED_FROM_GDRIVE=false
+TEMP_DIR="/root/restore_temp"
+RESTORE_FILE="/root/restore_data.zip"
 
-case $choice in
-    1)
-        read -p "Masukkan path lengkap ke file backup (.zip): " LOCAL_FILE
-        if [ ! -f "$LOCAL_FILE" ]; then
-            echo -e "${RED}Error: File tidak ditemukan di '$LOCAL_FILE'${NC}"
-            exit 1
-        fi
-        BACKUP_FILE_PATH=$LOCAL_FILE
-        ;;
-    2)
-        read -p "Masukkan link Google Drive (pastikan sudah 'Anyone with the link'): " GDLINK
-        FILE_ID=""
-        if [[ "$GDLINK" =~ \/d\/(.+)\/ ]]; then
+# Bersihkan sisa lama
+rm -rf "$TEMP_DIR" "$RESTORE_FILE"
+mkdir -p "$TEMP_DIR"
+
+if [[ "$method" == "1" ]]; then
+    echo ""
+    read -p "   Masukkan Link URL: " link_url
+    echo ""
+    
+    # --- AUTO CONVERT GOOGLE DRIVE LINK ---
+    # Jika link mengandung 'drive.google.com'
+    if [[ "$link_url" == *"drive.google.com"* ]]; then
+        # Ekstrak FILE ID
+        if [[ "$link_url" =~ \/d\/([a-zA-Z0-9_-]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
-        elif [[ "$GDLINK" =~ id=([^&]+) ]]; then
+        elif [[ "$link_url" =~ id=([a-zA-Z0-9_-]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
         fi
-        if [ -z "$FILE_ID" ]; then
-            echo -e "${RED}Error: Link Google Drive tidak valid atau tidak dapat menemukan File ID.${NC}"
-            exit 1
+        
+        if [[ -n "$FILE_ID" ]]; then
+            echo -e "  ${YELLOW}ℹ️  Google Drive Link Terdeteksi. Mengonversi...${NC}"
+            link_url="https://drive.google.com/u/0/uc?id=${FILE_ID}&export=download"
         fi
-        DIRECT_DOWNLOAD_LINK="https://drive.google.com/uc?export=download&id=${FILE_ID}"
-        TEMP_FILENAME="backup_download_$(date +%Y%m%d_%H%M%S).zip"
-        DEST_PATH="/root/${TEMP_FILENAME}"
-        echo -e "${BLUE}Mencoba download langsung sebagai '${TEMP_FILENAME}'...${NC}"
-        wget -q --show-progress -O "$DEST_PATH" "$DIRECT_DOWNLOAD_LINK"
-        if [ -s "$DEST_PATH" ]; then
-            if file "$DEST_PATH" | grep -q "Zip archive data"; then
-                BACKUP_FILE_PATH="$DEST_PATH"
-                DOWNLOADED_FROM_GDRIVE=true
-                echo -e "${GREEN}Download berhasil: ${TEMP_FILENAME}${NC}"
-            else
-                echo -e "${RED}Download gagal. File yang diunduh bukan arsip Zip yang valid.${NC}"
-                rm -f "$DEST_PATH"
-                exit 1
-            fi
-        else
-            echo -e "${RED}Gagal mendownload file. Hasil download kosong atau tidak ada.${NC}"
-            rm -f "$DEST_PATH" 2>/dev/null
-            exit 1
-        fi
-        ;;
-    *) echo -e "${RED}Pilihan tidak valid.${NC}"; exit 1;;
-esac
+    fi
+    # --------------------------------------
 
-echo ""
-if [ -z "$BACKUP_FILE_PATH" ]; then echo -e "${RED}Tidak ada file backup yang dipilih. Proses berhenti.${NC}"; exit 1; fi
-
-# --- KONFIRMASI PENTING ---
-echo -e "${ORANGE}==================== PERINGATAN ====================${NC}"
-echo -e "${RED}Proses ini akan menimpa semua data pengguna dan konfigurasi${NC}"
-echo -e "${RED}VMess, VLess, Trojan, dan Xray yang ada saat ini.${NC}"
-echo -e "${ORANGE}Pastikan Anda yakin sebelum melanjutkan!${NC}"
-echo -e "${ORANGE}====================================================${NC}"
-read -p "Apakah Anda yakin ingin melanjutkan proses restore? (y/N): " -r CONFIRM
-echo ""
-
-if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
-    echo -e "${BLUE}Proses restore dibatalkan oleh pengguna.${NC}"
-    if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then rm -f "$BACKUP_FILE_PATH"; fi
-    exit 0
-fi
-
-# --- MULAI PROSES RESTORE ---
-TEMP_RESTORE_DIR="/root/restore_temp_$(date +%s)"
-mkdir -p "$TEMP_RESTORE_DIR"
-echo -e "${BLUE}Mengekstrak file backup...${NC}"
-unzip -o "$BACKUP_FILE_PATH" -d "$TEMP_RESTORE_DIR" > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Gagal mengekstrak file backup. Pastikan file tidak korup.${NC}"
-    rm -rf "$TEMP_RESTORE_DIR"; if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then rm -f "$BACKUP_FILE_PATH"; fi
+    cmd_download() {
+        wget -q --no-check-certificate -O "$RESTORE_FILE" "$link_url"
+    }
+    fun_bar "cmd_download" "Downloading File     "
+    
+elif [[ "$method" == "2" ]]; then
+    echo ""
+    read -e -p "   Masukkan Path File Lokal: " local_path
+    echo ""
+    if [ -f "$local_path" ]; then
+        cp "$local_path" "$RESTORE_FILE"
+        echo -e "  ${GREEN}File ditemukan!${NC}"
+    else
+        echo -e "  ${RED}File tidak ditemukan!${NC}"
+        exit 1
+    fi
+else
+    echo -e "  ${RED}Pilihan tidak valid.${NC}"
     exit 1
 fi
-echo -e "${GREEN}Ekstrak berhasil.${NC}"
 
-# --- PERBAIKAN UTAMA: MEMINDAHKAN FILE SECARA MANUAL ---
-echo -e "${BLUE}Memulihkan data ke sistem (memindahkan file satu per satu)...${NC}"
-cd "$TEMP_RESTORE_DIR" || exit
-
-# Memulihkan file-file sistem
-echo -e "${CYAN}Memulihkan file sistem...${NC}"
-if [ -f "passwd" ]; then mv -f passwd /etc/passwd; echo " -> /etc/passwd dipulihkan"; fi
-if [ -f "group" ]; then mv -f group /etc/group; echo " -> /etc/group dipulihkan"; fi
-if [ -f "shadow" ]; then mv -f shadow /etc/shadow; echo " -> /etc/shadow dipulihkan"; fi
-if [ -f "gshadow" ]; then mv -f gshadow /etc/gshadow; echo " -> /etc/gshadow dipulihkan"; fi
-if [ -f "crontab" ]; then mv -f crontab /etc/crontab; echo " -> /etc/crontab dipulihkan"; fi
-
-# Memulihkan folder-folder (menggunakan rsync untuk menimpa dengan benar)
-echo -e "${CYAN}Memulihkan data konfigurasi...${NC}"
-if [ -d "vless" ]; then rsync -a --delete vless/ /etc/vless/; echo " -> /etc/vless dipulihkan"; fi
-if [ -d "vmess" ]; then rsync -a --delete vmess/ /etc/vmess/; echo " -> /etc/vmess dipulihkan"; fi
-if [ -d "trojan" ]; then rsync -a --delete trojan/ /etc/trojan/; echo " -> /etc/trojan dipulihkan"; fi
-if [ -d "xray" ]; then rsync -a --delete xray/ /etc/xray/; echo " -> /etc/xray dipulihkan"; fi
-if [ -d "kyt" ]; then rsync -a --delete kyt/ /var/lib/kyt/; echo " -> /var/lib/kyt dipulihkan"; fi
-if [ -d "html" ]; then rsync -a --delete html/ /var/www/html/; echo " -> /var/www/html dipulihkan"; fi
-
-echo -e "${GREEN}Data berhasil dipulihkan.${NC}"
-# --- AKHIR DARI PERBAIKAN ---
-
-echo -e "${BLUE}Me-restart layanan terkait...${NC}"
-(systemctl restart xray > /dev/null 2>&1 && systemctl restart nginx > /dev/null 2>&1) &
-pid=$!; spinner $pid; wait $pid; echo -e "${GREEN}Layanan telah di-restart.${NC}"
-
-echo -e "${BLUE}Membersihkan file sementara...${NC}"
-rm -rf "$TEMP_RESTORE_DIR"
-if [ "$DOWNLOADED_FROM_GDRIVE" = true ]; then
-    if [ -f "$BACKUP_FILE_PATH" ]; then rm -f "$BACKUP_FILE_PATH"; fi
+# Cek Validitas ZIP
+if ! unzip -t "$RESTORE_FILE" > /dev/null 2>&1; then
+    echo -e "\n  ${RED}ERROR: File bukan ZIP valid atau Corrupt.${NC}"
+    echo -e "  ${YELLOW}Tips: Pastikan Link GDrive Anda bersifat 'Public' (Siapa saja yang memiliki link).${NC}"
+    rm -f "$RESTORE_FILE"
+    exit 1
 fi
 
+# --- 2. EKSTRAKSI FILE ---
+echo -e "\n${B_WHITE}[2/5] Mengekstrak Data...${NC}"
+cmd_unzip() {
+    unzip -o "$RESTORE_FILE" -d "$TEMP_DIR"
+}
+fun_bar "cmd_unzip" "Extracting Backup    "
+
+# --- 3. RESTORE SYSTEM FILES ---
+echo -e "\n${B_WHITE}[3/5] Memulihkan Konfigurasi Sistem...${NC}"
+
+cmd_restore_sys() {
+    cd "$TEMP_DIR" || return 1
+    
+    # Restore User & Password System
+    [ -f passwd ] && cp -rf passwd /etc/passwd
+    [ -f group ] && cp -rf group /etc/group
+    [ -f shadow ] && cp -rf shadow /etc/shadow
+    [ -f gshadow ] && cp -rf gshadow /etc/gshadow
+    [ -f crontab ] && cp -rf crontab /etc/crontab
+    
+    return 0
+}
+fun_bar "cmd_restore_sys" "Restoring Users/Pass "
+
+# --- 4. RESTORE VPN & PANEL DATA ---
+echo -e "${B_WHITE}[4/5] Memulihkan Data VPN & Panel...${NC}"
+
+cmd_restore_data() {
+    cd "$TEMP_DIR" || return 1
+    
+    # 1. Restore Xray/V2ray/Trojan
+    if [ -d "xray" ]; then cp -rf xray /etc/; fi
+    if [ -d "v2ray" ]; then cp -rf v2ray /etc/; fi
+    if [ -d "trojan" ]; then cp -rf trojan /etc/; fi
+    
+    # 2. Restore ZiVPN (PENTING)
+    if [ -d "zivpn" ]; then 
+        mkdir -p /etc/zivpn
+        cp -rf zivpn/* /etc/zivpn/
+    fi
+    
+    # 3. Restore KYT Panel & Scripts
+    if [ -d "kyt" ]; then
+        # Logic Restore Smart untuk KYT
+        cp -rf kyt /var/lib/
+        cp -rf kyt /usr/bin/
+        chmod +x /usr/bin/kyt/*
+    fi
+    
+    # 4. Restore Web File
+    if [ -d "html" ]; then
+        mkdir -p /var/www/html
+        cp -rf html/* /var/www/html/
+    fi
+    
+    return 0
+}
+fun_bar "cmd_restore_data" "Restoring Configs    "
+
+# --- 5. RESTART SERVICES ---
+echo -e "${B_WHITE}[5/5] Merestart Layanan...${NC}"
+
+cmd_restart() {
+    systemctl daemon-reload
+    services=(nginx xray v2ray trojan ssh dropbear cron haproxy zivpn udp-custom ws-stunnel fail2ban)
+    
+    for svc in "${services[@]}"; do
+        if systemctl list-unit-files | grep -q "$svc"; then
+            systemctl restart "$svc"
+        fi
+    done
+    return 0
+}
+fun_bar "cmd_restart" "Restarting Services  "
+
+# --- CLEANUP ---
+rm -rf "$TEMP_DIR"
+rm -f "$RESTORE_FILE"
+
 echo ""
-echo -e "${GREEN}==================================================${NC}"
-echo -e "      ${GREEN}✅ PROSES RESTORE SELESAI ✅${NC}"
-echo -e "${GREEN}==================================================${NC}"
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}           ✅ RESTORE BERHASIL SELESAI           ${NC}"
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${B_WHITE}  Semua akun SSH, Xray, dan ZiVPN telah pulih.${NC}"
+echo -e "${B_WHITE}  Password root & user telah dikembalikan.${NC}"
+echo -e "${B_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+read -n 1 -s -r -p "Tekan Enter untuk kembali ke menu..."
+menu
